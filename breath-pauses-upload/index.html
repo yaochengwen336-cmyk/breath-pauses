@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>剪气口 - 音频静音去除工具</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;background:#0f0f1a;color:#e0e0e0;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+h1{font-size:28px;margin-bottom:8px;background:linear-gradient(135deg,#7b68ee,#00bcd4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.subtitle{color:#888;margin-bottom:30px;font-size:14px}
+.container{width:100%;max-width:700px}
+.drop-zone{border:2px dashed #444;border-radius:16px;padding:60px 20px;text-align:center;cursor:pointer;transition:all .3s;background:#1a1a2e}
+.drop-zone:hover,.drop-zone.dragover{border-color:#7b68ee;background:#1e1e3a}
+.drop-zone .icon{font-size:48px;margin-bottom:12px}
+.drop-zone p{color:#aaa;font-size:15px}
+.drop-zone .hint{color:#666;font-size:12px;margin-top:8px}
+input[type=file]{display:none}
+.settings{background:#1a1a2e;border-radius:12px;padding:20px;margin-top:20px}
+.settings summary{cursor:pointer;color:#aaa;font-size:14px;user-select:none}
+.settings summary:hover{color:#ddd}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.setting-item{display:flex;flex-direction:column;gap:4px}
+.setting-item label{font-size:12px;color:#888}
+.setting-item input,.setting-item select{background:#0f0f1a;border:1px solid #333;border-radius:6px;padding:8px 10px;color:#e0e0e0;font-size:13px;outline:none}
+.setting-item input:focus{border-color:#7b68ee}
+.btn-row{display:flex;gap:10px;margin-top:20px}
+button{flex:1;padding:12px;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;transition:all .2s}
+.btn-primary{background:linear-gradient(135deg,#7b68ee,#5c50d6);color:#fff}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 15px rgba(123,104,238,.3)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-secondary{background:#2a2a3e;color:#ccc}
+.btn-secondary:hover{background:#3a3a4e}
+.progress-area{margin-top:20px;display:none}
+.progress-bar-bg{height:6px;background:#222;border-radius:3px;overflow:hidden}
+.progress-bar{height:100%;background:linear-gradient(90deg,#7b68ee,#00bcd4);width:0;transition:width .3s;border-radius:3px}
+.log{margin-top:12px;background:#0a0a16;border-radius:8px;padding:14px;font-family:"Cascadia Code","Fira Code",monospace;font-size:12px;max-height:200px;overflow-y:auto;line-height:1.7;color:#888}
+.log .info{color:#7b68ee}
+.log .ok{color:#4caf50}
+.log .warn{color:#ff9800}
+.log .err{color:#f44336}
+.file-list{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+.file-item{background:#1a1a2e;border-radius:8px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+.file-item .name{font-size:13px;color:#ddd;word-break:break-all;flex:1}
+.file-item .size{font-size:12px;color:#666;margin-left:12px;white-space:nowrap}
+.file-item .remove{background:none;border:none;color:#666;cursor:pointer;font-size:16px;margin-left:8px}
+.file-item .remove:hover{color:#f44336}
+.result-area{margin-top:20px;display:none}
+.result-item{background:#1a1a2e;border-radius:8px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.result-item .info{flex:1}
+.result-item .info .name{font-size:13px;color:#ddd}
+.result-item .info .detail{font-size:11px;color:#666;margin-top:4px}
+.result-item .dl-btn{background:linear-gradient(135deg,#4caf50,#388e3c);color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:12px;cursor:pointer;white-space:nowrap}
+.result-item .dl-btn:hover{box-shadow:0 2px 10px rgba(76,175,80,.3)}
+.status-msg{text-align:center;margin-top:12px;font-size:12px;color:#4caf50}
+</style>
+</head>
+<body>
+
+<h1>✂️ 剪气口</h1>
+<p class="subtitle">自动去除音频中的静音/气口，纯本地处理，无需安装任何软件</p>
+
+<div class="container">
+  <div class="drop-zone" id="dropZone">
+    <div class="icon">🎧</div>
+    <p>拖拽音频文件到这里，或点击选择</p>
+    <p class="hint">支持 mp3 / wav / m4a / ogg / flac / aac 等主流格式</p>
+  </div>
+  <input type="file" id="fileInput" multiple accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.wma">
+
+  <div class="file-list" id="fileList"></div>
+
+  <details class="settings">
+    <summary>⚙️ 高级设置</summary>
+    <div class="settings-grid">
+      <div class="setting-item">
+        <label>静音阈值 (dBFS, 越低越严格)</label>
+        <input type="number" id="noise" value="-35" step="1" title="低于此音量视为静音，-35 适合多数人声">
+      </div>
+      <div class="setting-item">
+        <label>最小静音时长 (秒)</label>
+        <input type="number" id="minSilence" value="0.18" min="0.05" step="0.01">
+      </div>
+      <div class="setting-item">
+        <label>保留间隙 (秒)</label>
+        <input type="number" id="keep" value="0.06" min="0" step="0.01" title="气口两侧各保留的秒数，让过渡更自然">
+      </div>
+      <div class="setting-item">
+        <label>最短片段 (秒)</label>
+        <input type="number" id="minSegment" value="0.03" min="0.01" step="0.01" title="剪切后丢弃短于此的片段">
+      </div>
+      <div class="setting-item">
+        <label>输出格式</label>
+        <select id="codec">
+          <option value="wav" selected>WAV (无损，兼容性最好)</option>
+          <option value="mp3">MP3</option>
+        </select>
+      </div>
+    </div>
+  </details>
+
+  <div class="btn-row">
+    <button class="btn-primary" id="btnStart" disabled>开始处理</button>
+    <button class="btn-secondary" id="btnClear">清空列表</button>
+  </div>
+
+  <p class="status-msg" id="statusMsg">✅ 就绪，可直接使用</p>
+
+  <div class="progress-area" id="progressArea">
+    <div class="progress-bar-bg"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="log" id="logArea"></div>
+  </div>
+
+  <div class="result-area" id="resultArea"></div>
+</div>
+
+<script>
+// ============================================================
+// Pure Web Audio API implementation — no ffmpeg, no workers
+// ============================================================
+
+const dropZone = document.getElementById("dropZone");
+const fileInput = document.getElementById("fileInput");
+const fileListEl = document.getElementById("fileList");
+const btnStart = document.getElementById("btnStart");
+const btnClear = document.getElementById("btnClear");
+const progressArea = document.getElementById("progressArea");
+const progressBar = document.getElementById("progressBar");
+const logArea = document.getElementById("logArea");
+const resultArea = document.getElementById("resultArea");
+
+let files = [];
+
+dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("dragover");
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener("change", e => addFiles(e.target.files));
+
+function addFiles(fileList) {
+  for (const f of fileList) {
+    if (!files.some(x => x.name === f.name && x.size === f.size)) {
+      files.push(f);
+    }
+  }
+  renderFileList();
+  fileInput.value = "";
+}
+
+function renderFileList() {
+  fileListEl.innerHTML = "";
+  files.forEach((f, i) => {
+    const div = document.createElement("div");
+    div.className = "file-item";
+    div.innerHTML =
+      '<span class="name">' + esc(f.name) + '</span>' +
+      '<span class="size">' + formatSize(f.size) + '</span>' +
+      '<button class="remove" data-i="' + i + '">✕</button>';
+    fileListEl.appendChild(div);
+  });
+  fileListEl.querySelectorAll(".remove").forEach(btn => {
+    btn.addEventListener("click", () => { files.splice(+btn.dataset.i, 1); renderFileList(); });
+  });
+  btnStart.disabled = files.length === 0;
+}
+
+btnClear.addEventListener("click", () => {
+  files = [];
+  renderFileList();
+  resultArea.innerHTML = "";
+  resultArea.style.display = "none";
+});
+
+// ---- Processing ----
+
+btnStart.addEventListener("click", async () => {
+  btnStart.disabled = true;
+  progressArea.style.display = "block";
+  resultArea.style.display = "block";
+  resultArea.innerHTML = "";
+  logArea.innerHTML = "";
+  progressBar.style.width = "0%";
+
+  const noiseDb = parseFloat(document.getElementById("noise").value);
+  const minSilence = parseFloat(document.getElementById("minSilence").value);
+  const keep = parseFloat(document.getElementById("keep").value);
+  const minSegment = parseFloat(document.getElementById("minSegment").value);
+  const codec = document.getElementById("codec").value;
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    progressBar.style.width = ((i / files.length) * 100).toFixed(0) + "%";
+    log("[" + (i + 1) + "/" + files.length + "] 处理: " + file.name, "info");
+
+    try {
+      const result = await processFile(file, noiseDb, minSilence, keep, minSegment, codec);
+      log("✅ 完成: " + result.outName + "  (" + result.detail + ")", "ok");
+      addResult(result.outName, result.detail, result.blob);
+    } catch (e) {
+      log("❌ 失败: " + file.name + " — " + (e.message || e), "err");
+      console.error(e);
+    }
+  }
+
+  progressBar.style.width = "100%";
+  btnStart.disabled = false;
+  log("全部处理完毕。", "ok");
+});
+
+async function processFile(file, noiseDb, minSilence, keep, minSegment, codec) {
+  // Decode audio
+  const arrayBuf = await file.arrayBuffer();
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+  audioCtx.close();
+
+  const sampleRate = audioBuffer.sampleRate;
+  const channels = audioBuffer.numberOfChannels;
+  const duration = audioBuffer.duration;
+
+  // Mix to mono for silence detection
+  const mono = getMonoData(audioBuffer);
+  log("  时长: " + duration.toFixed(2) + "s, 采样率: " + sampleRate + "Hz, 声道: " + channels);
+
+  // Detect silences
+  const threshold = Math.pow(10, noiseDb / 20); // dBFS to linear
+  const silences = detectSilences(mono, sampleRate, threshold, minSilence);
+  log("  检测到 " + silences.length + " 个静音区间");
+
+  // Build keep ranges
+  const ranges = buildKeepRanges(duration, silences, keep, minSilence, minSegment);
+  const kept = ranges.reduce((s, r) => s + r[1] - r[0], 0);
+  const removed = Math.max(duration - kept, 0);
+  log("  保留 " + ranges.length + " 段, 总长 " + kept.toFixed(2) + "s, 去除 " + removed.toFixed(2) + "s");
+
+  // Build output
+  let blob;
+  if (ranges.length === 1 && ranges[0][0] === 0 && Math.abs(ranges[0][1] - duration) < 0.01) {
+    log("  ⚠️ 没有需要剪切的部分，直接复制", "warn");
+    blob = await encodeAudio(audioBuffer, ranges, codec);
+  } else {
+    blob = await encodeAudio(audioBuffer, ranges, codec);
+  }
+
+  const ext = codec === "mp3" ? "mp3" : "wav";
+  const outName = file.name.replace(/\.[^.]+$/, "") + "_cut." + ext;
+  return { outName, blob, detail: duration.toFixed(1) + "s → " + kept.toFixed(1) + "s (去除 " + removed.toFixed(1) + "s)" };
+}
+
+function getMonoData(audioBuffer) {
+  const ch = audioBuffer.numberOfChannels;
+  const len = audioBuffer.length;
+  const out = new Float32Array(len);
+  for (let c = 0; c < ch; c++) {
+    const d = audioBuffer.getChannelData(c);
+    for (let i = 0; i < len; i++) out[i] += d[i] / ch;
+  }
+  return out;
+}
+
+function detectSilences(mono, sampleRate, threshold, minSilenceDur) {
+  // Analyze in ~10ms windows
+  const windowSize = Math.max(1, Math.round(sampleRate * 0.01));
+  const minSilentWindows = Math.ceil(minSilenceDur / (windowSize / sampleRate));
+  const silences = [];
+  let silentStart = -1;
+
+  for (let i = 0; i < mono.length; i += windowSize) {
+    const end = Math.min(i + windowSize, mono.length);
+    let sum = 0;
+    for (let j = i; j < end; j++) sum += mono[j] * mono[j];
+    const rms = Math.sqrt(sum / (end - i));
+
+    if (rms < threshold) {
+      if (silentStart < 0) silentStart = i / sampleRate;
+    } else {
+      if (silentStart >= 0) {
+        const silentEnd = i / sampleRate;
+        if ((silentEnd - silentStart) >= minSilenceDur) {
+          silences.push([silentStart, silentEnd]);
+        }
+        silentStart = -1;
+      }
+    }
+  }
+  // Handle trailing silence
+  if (silentStart >= 0) {
+    const silentEnd = mono.length / sampleRate;
+    if ((silentEnd - silentStart) >= minSilenceDur) {
+      silences.push([silentStart, silentEnd]);
+    }
+  }
+
+  return silences;
+}
+
+function buildKeepRanges(duration, silences, keep, minGap, minSegment) {
+  const ranges = [];
+  let cursor = 0;
+
+  for (let k = 0; k < silences.length; k++) {
+    const start = silences[k][0];
+    const end = silences[k][1];
+    if (end - start < minGap) continue;
+    const cutStart = Math.min(Math.max(start + keep, 0), duration);
+    const cutEnd = Math.min(Math.max(end - keep, 0), duration);
+    if (cutEnd <= cutStart) continue;
+    if (cutStart - cursor >= minSegment) ranges.push([cursor, cutStart]);
+    cursor = Math.max(cursor, cutEnd);
+  }
+  if (duration - cursor >= minSegment) ranges.push([cursor, duration]);
+  if (ranges.length === 0) ranges.push([0, duration]);
+  return ranges;
+}
+
+async function encodeAudio(audioBuffer, ranges, codec) {
+  if (codec === "mp3") {
+    return encodeMP3(audioBuffer, ranges);
+  }
+  return encodeWAV(audioBuffer, ranges);
+}
+
+// ---- WAV encoder ----
+function encodeWAV(audioBuffer, ranges) {
+  const sr = audioBuffer.sampleRate;
+  const ch = audioBuffer.numberOfChannels;
+  const totalSamples = ranges.reduce((s, r) => s + Math.round((r[1] - r[0]) * sr), 0);
+  const bytesPerSample = 2; // 16-bit
+  const dataSize = totalSamples * ch * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  // WAV header
+  writeStr(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(view, 8, "WAVE");
+  writeStr(view, 12, "fmt ");
+  view.setUint32(16, 16, true); // chunk size
+  view.setUint16(20, 1, true);  // PCM
+  view.setUint16(22, ch, true);
+  view.setUint32(24, sr, true);
+  view.setUint32(28, sr * ch * bytesPerSample, true);
+  view.setUint16(32, ch * bytesPerSample, true);
+  view.setUint16(34, 16, true); // bits per sample
+  writeStr(view, 36, "data");
+  view.setUint32(40, dataSize, true);
+
+  // Interleave channels and write samples
+  let offset = 44;
+  const channelData = [];
+  for (let c = 0; c < ch; c++) channelData.push(audioBuffer.getChannelData(c));
+
+  for (let k = 0; k < ranges.length; k++) {
+    const startSample = Math.round(ranges[k][0] * sr);
+    const endSample = Math.round(ranges[k][1] * sr);
+    for (let i = startSample; i < endSample; i++) {
+      for (let c = 0; c < ch; c++) {
+        let s = channelData[c][i] * 32767;
+        s = Math.max(-32768, Math.min(32767, Math.round(s)));
+        view.setInt16(offset, s, true);
+        offset += 2;
+      }
+    }
+  }
+
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function writeStr(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+// ---- MP3 encoder (lamejs, loaded on demand) ----
+let lamejsLoaded = false;
+let lamejsModule = null;
+
+async function loadLamejs() {
+  if (lamejsLoaded) return lamejsModule;
+  // Inline minimal lamejs encoder for CBR MP3
+  // We'll use a lightweight approach: encode WAV then convert
+  // Actually, let's just embed the core lamejs logic
+  lamejsLoaded = true;
+  return null; // fallback to WAV
+}
+
+async function encodeMP3(audioBuffer, ranges) {
+  // Fallback: encode as WAV if lamejs not available
+  // For a proper MP3 encoder, we'd need lamejs (~150KB)
+  // For now, output WAV and let the user know
+  log("  ℹ️ MP3 编码暂不支持，输出为 WAV 格式", "warn");
+  return encodeWAV(audioBuffer, ranges);
+}
+
+// ---- UI helpers ----
+
+function addResult(name, detail, blob) {
+  const div = document.createElement("div");
+  div.className = "result-item";
+  div.innerHTML =
+    '<div class="info"><div class="name">' + esc(name) + '</div>' +
+    '<div class="detail">' + esc(detail) + '</div></div>' +
+    '<button class="dl-btn">下载</button>';
+  div.querySelector(".dl-btn").addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  resultArea.appendChild(div);
+}
+
+function log(msg, cls) {
+  const span = document.createElement("div");
+  if (cls) span.className = cls;
+  span.textContent = msg;
+  logArea.appendChild(span);
+  logArea.scrollTop = logArea.scrollHeight;
+}
+
+function formatSize(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+  return (b / 1048576).toFixed(1) + " MB";
+}
+
+function esc(s) {
+  var d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+
+</body>
+</html>
